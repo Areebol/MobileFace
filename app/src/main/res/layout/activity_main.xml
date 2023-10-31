@@ -64,6 +64,12 @@
             android:layout_margin="10dp"
             android:text="开始人脸比对" />
 
+        <Button
+            android:id="@+id/test_Btn"
+            android:layout_width="100dp"
+            android:layout_height="48dp"
+            android:text="开始测试" />
+
     </LinearLayout>
 
 
