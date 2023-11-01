@@ -1,5 +1,7 @@
 package com.zwp.mobilefacenet;
 
+import static java.lang.Float.parseFloat;
+
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.content.Intent;
@@ -16,19 +18,22 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import com.zwp.mobilefacenet.faceantispoofing.FaceAntiSpoofing;
 import com.zwp.mobilefacenet.mobilefacenet.MobileFaceNet;
 import com.zwp.mobilefacenet.mtcnn.Align;
 import com.zwp.mobilefacenet.mtcnn.Box;
 import com.zwp.mobilefacenet.mtcnn.MTCNN;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.Vector;
 
 public class MainActivity extends AppCompatActivity {
 
     private MTCNN mtcnn; // 人脸检测
-    private FaceAntiSpoofing fas; // 活体检测
     private MobileFaceNet mfn; // 人脸比对
 
     public static Bitmap bitmap1;
@@ -42,6 +47,10 @@ public class MainActivity extends AppCompatActivity {
     private ImageView imageViewCrop2;
     private TextView resultTextView;
     private TextView resultTextView2;
+
+    Boolean net = false;
+    String host = "127.0.0.1";
+    int port = 1988;
 
     //控制方法
     @Override
@@ -66,7 +75,6 @@ public class MainActivity extends AppCompatActivity {
         //解释器设置
         try {
             mtcnn = new MTCNN(getAssets());
-            fas = new FaceAntiSpoofing(getAssets());
             mfn = new MobileFaceNet(getAssets());
         } catch (IOException e) {
             e.printStackTrace();
@@ -80,8 +88,12 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View view) {
                 faceCrop();
-                antiSpoofing();
-                faceCompare();
+                try {
+                    faceCompare();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    Toast.makeText(MainActivity.this, "对比失败" + e.getMessage(), Toast.LENGTH_LONG).show();
+                }
             }
         });
 
@@ -90,7 +102,12 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View view) {
                 long start = System.currentTimeMillis();
                 faceCropTest();
-                faceCompare();
+                try {
+                    faceCompare();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    Toast.makeText(MainActivity.this, "对比失败" + e.getMessage(), Toast.LENGTH_LONG).show();
+                }
                 long end = System.currentTimeMillis();
                 resultTextView2.setText("总耗时:" + (end - start));
             }
@@ -194,74 +211,50 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 活体检测
-     */
-    private void antiSpoofing() {
-        if (bitmapCrop1 == null || bitmapCrop2 == null) {
-            Toast.makeText(this, "请先检测人脸", Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        // 活体检测前先判断图片清晰度
-        int laplace1 = fas.laplacian(bitmapCrop1);
-
-        String text = "清晰度检测结果left：" + laplace1;
-        if (laplace1 < FaceAntiSpoofing.LAPLACIAN_THRESHOLD) {
-            text = text + "，" + "False";
-            resultTextView.setTextColor(getResources().getColor(android.R.color.holo_red_light));
-        } else {
-            long start = System.currentTimeMillis();
-
-            // 活体检测
-            float score1 = fas.antiSpoofing(bitmapCrop1);
-
-            long end = System.currentTimeMillis();
-
-            text = "活体检测结果left：" + score1;
-            if (score1 < FaceAntiSpoofing.THRESHOLD) {
-                text = text + "，" + "True";
-                resultTextView.setTextColor(getResources().getColor(android.R.color.holo_green_light));
-            } else {
-                text = text + "，" + "False";
-                resultTextView.setTextColor(getResources().getColor(android.R.color.holo_red_light));
-            }
-            text = text + "。耗时" + (end - start);
-        }
-        resultTextView.setText(text);
-
-        // 第二张图片活体检测前先判断图片清晰度
-        int laplace2 = fas.laplacian(bitmapCrop2);
-
-        String text2 = "清晰度检测结果left：" + laplace2;
-        if (laplace2 < FaceAntiSpoofing.LAPLACIAN_THRESHOLD) {
-            text2 = text2 + "，" + "False";
-            resultTextView2.setTextColor(getResources().getColor(android.R.color.holo_red_light));
-        } else {
-            // 活体检测
-            float score2 = fas.antiSpoofing(bitmapCrop2);
-            text2 = "活体检测结果right：" + score2;
-            if (score2 < FaceAntiSpoofing.THRESHOLD) {
-                text2 = text2 + "，" + "True";
-                resultTextView2.setTextColor(getResources().getColor(android.R.color.holo_green_light));
-            } else {
-                text2 = text2 + "，" + "False";
-                resultTextView2.setTextColor(getResources().getColor(android.R.color.holo_red_light));
-            }
-        }
-        resultTextView2.setText(text2);
-    }
-
-    /**
      * 人脸比对
      */
-    private void faceCompare() {
+    private void faceCompare() throws IOException {
+        float same;
         if (bitmapCrop1 == null || bitmapCrop2 == null) {
             Toast.makeText(this, "请先检测人脸", Toast.LENGTH_LONG).show();
             return;
         }
 
         long start = System.currentTimeMillis();
-        float same = mfn.compare(bitmapCrop1, bitmapCrop2); // 就这一句有用代码，其他都是UI
+        if (!net) {
+            same = mfn.compare(bitmapCrop1, bitmapCrop2); // 就这一句有用代码，其他都是UI
+        } else {
+            // 创建Socket对象
+            Socket socket = new Socket();
+
+            // 设置连接参数
+            socket.connect(new InetSocketAddress(host, port), 500);
+
+            // 获取输出流
+            OutputStream output = socket.getOutputStream();
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            bitmapCrop1.compress(Bitmap.CompressFormat.PNG, 100, baos);
+            byte[] img1Bytes = baos.toByteArray();
+            bitmapCrop2.compress(Bitmap.CompressFormat.PNG, 100, baos);
+            byte[] img2Bytes = baos.toByteArray();
+
+            output.write(img1Bytes);
+            output.write(img2Bytes);
+
+            // 获取输入流
+            InputStream input = socket.getInputStream();
+
+            // 读取返回的比对结果
+            byte[] buffer = new byte[1024];
+            int len = input.read(buffer);
+            String result = new String(buffer, 0, len);
+            same = parseFloat(result);
+
+            // 关闭连接
+            socket.close();
+        }
+
         long end = System.currentTimeMillis();
 
         String text = "人脸比对结果：" + same;
