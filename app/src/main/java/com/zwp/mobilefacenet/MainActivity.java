@@ -100,6 +100,7 @@ public class MainActivity extends AppCompatActivity {
         testBtn.setOnClickListener(new View.OnClickListener(){
             @Override
             public void onClick(View view) {
+                net = true;
                 long start = System.currentTimeMillis();
                 faceCropTest();
                 try {
@@ -110,6 +111,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 long end = System.currentTimeMillis();
                 resultTextView2.setText("总耗时:" + (end - start));
+                net = false;
             }
         });
     }
