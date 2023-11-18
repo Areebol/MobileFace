@@ -1,7 +1,5 @@
 package com.zwp.mobilefacenet;
 
-import static java.lang.Float.parseFloat;
-
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.content.Intent;
@@ -11,6 +9,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Rect;
 import android.os.Bundle;
+import android.util.Base64;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageButton;
@@ -23,13 +22,18 @@ import com.zwp.mobilefacenet.mtcnn.Align;
 import com.zwp.mobilefacenet.mtcnn.Box;
 import com.zwp.mobilefacenet.mtcnn.MTCNN;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.Socket;
+import java.net.URL;
 import java.util.Vector;
+
+import javax.net.ssl.HttpsURLConnection;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -216,7 +220,7 @@ public class MainActivity extends AppCompatActivity {
      * 人脸比对
      */
     private void faceCompare() throws IOException {
-        float same;
+        float same = 0;
         if (bitmapCrop1 == null || bitmapCrop2 == null) {
             Toast.makeText(this, "请先检测人脸", Toast.LENGTH_LONG).show();
             return;
@@ -226,35 +230,48 @@ public class MainActivity extends AppCompatActivity {
         if (!net) {
             same = mfn.compare(bitmapCrop1, bitmapCrop2); // 就这一句有用代码，其他都是UI
         } else {
-            // 创建Socket对象
-            Socket socket = new Socket();
+            String url = "127.0.0.1:80/compare";
 
-            // 设置连接参数
-            socket.connect(new InetSocketAddress(host, port), 500);
+            String base64Image1 = bitmapToBase64(bitmapCrop1);
+            String base64Image2 = bitmapToBase64(bitmapCrop2);
 
-            // 获取输出流
-            OutputStream output = socket.getOutputStream();
+            String body = "{image1:" + base64Image1 + ",image2:" + base64Image2 + "}";
 
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            bitmapCrop1.compress(Bitmap.CompressFormat.PNG, 100, baos);
-            byte[] img1Bytes = baos.toByteArray();
-            bitmapCrop2.compress(Bitmap.CompressFormat.PNG, 100, baos);
-            byte[] img2Bytes = baos.toByteArray();
+            //发送请求
+            URL obj = new URL(url);
+            HttpsURLConnection con = (HttpsURLConnection) obj.openConnection();
+            con.setRequestMethod("POST");
+            con.setDoOutput(true);
+            OutputStream os = con.getOutputStream();
+            os.write(body.getBytes());
+            os.flush();
+            os.close();
 
-            output.write(img1Bytes);
-            output.write(img2Bytes);
+            //解析响应
+            int responseCode = con.getResponseCode();
+            if (responseCode == HttpsURLConnection.HTTP_OK) {
+                BufferedReader in = new BufferedReader(
+                        new InputStreamReader(con.getInputStream())
+                );
+                String inputLine;
+                StringBuffer response = new StringBuffer();
 
-            // 获取输入流
-            InputStream input = socket.getInputStream();
+                while ((inputLine = in.readLine()) != null) {
+                    response.append(inputLine);
+                }
+                in.close();
 
-            // 读取返回的比对结果
-            byte[] buffer = new byte[1024];
-            int len = input.read(buffer);
-            String result = new String(buffer, 0, len);
-            same = parseFloat(result);
-
-            // 关闭连接
-            socket.close();
+                try {
+                    JSONObject json = new JSONObject(response.toString());
+                    if (json.has("score")) {
+                        same = (float) json.getDouble("score");
+                    } else {
+                        throw new RuntimeException();
+                    }
+                } catch (JSONException e) {
+                    throw new RuntimeException(e);
+                }
+            }
         }
 
         long end = System.currentTimeMillis();
@@ -270,6 +287,14 @@ public class MainActivity extends AppCompatActivity {
         text = text + "，耗时" + (end - start);
         resultTextView.setText(text);
         resultTextView2.setText("");
+    }
+
+    // bitmap转base64的工具方法
+    private String bitmapToBase64(Bitmap bitmap) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, baos);
+        byte[] b = baos.toByteArray();
+        return Base64.encodeToString(b,Base64.DEFAULT);
     }
 
     /*********************************** 以下是相机部分 ***********************************/
