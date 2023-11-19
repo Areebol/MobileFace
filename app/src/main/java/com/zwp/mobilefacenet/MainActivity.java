@@ -5,7 +5,6 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import android.Manifest;
-import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
@@ -35,6 +34,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Vector;
 
@@ -231,70 +231,97 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        long start = System.currentTimeMillis();
+        final long start = System.currentTimeMillis();
         if (!net) {
             same = mfn.compare(bitmapCrop1, bitmapCrop2); // 就这一句有用代码，其他都是UI
-        } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.INTERNET) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.INTERNET}, 1001);
+
+            long end = System.currentTimeMillis();
+
+            String text = "本地人脸比对结果：" + same;
+            if (same > MobileFaceNet.THRESHOLD) {
+                text = text + "，" + "True";
+                resultTextView.setTextColor(getResources().getColor(android.R.color.holo_green_light));
+            } else {
+                text = text + "，" + "False";
+                resultTextView.setTextColor(getResources().getColor(android.R.color.holo_red_light));
             }
-            String url = "https://110.64.90.148:8080/compare";
+            text = text + "，耗时" + (end - start);
+            resultTextView.setText(text);
+            resultTextView2.setText("");
+        } else {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.INTERNET) != PackageManager.PERMISSION_GRANTED) {
+                            ActivityCompat.requestPermissions(MainActivity.this,new String[]{Manifest.permission.INTERNET}, 1001);
+                        }
+                        String url = "http://110.64.90.148:8080/compare";
 
-            String base64Image1 = bitmapToBase64(bitmapCrop1);
-            String base64Image2 = bitmapToBase64(bitmapCrop2);
+                        String base64Image1 = bitmapToBase64(bitmapCrop1);
+                        String base64Image2 = bitmapToBase64(bitmapCrop2);
 
-            String body = "{\"image1\":\"" + base64Image1 + "\",\"image2\":\"" + base64Image2 + "\"}";
+                        String body = "{\"image1\":\"" + base64Image1 + "\",\"image2\":\"" + base64Image2 + "\"}";
 
-            //发送请求
-            URL obj = new URL(url);
-            HttpsURLConnection con = (HttpsURLConnection) obj.openConnection();
-            con.setRequestMethod("POST");
-            con.setDoOutput(true);
-            OutputStream os = con.getOutputStream();
-            os.write(body.getBytes());
-            os.flush();
-            os.close();
+                        //发送请求
+                        URL obj = new URL(url);
+                        HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+                        con.setRequestMethod("POST");
+                        con.setRequestProperty("Content-Type", "application/json");
+                        con.setDoOutput(true);
+                        OutputStream os = con.getOutputStream();
+                        os.write(body.getBytes());
+                        os.flush();
+                        os.close();
 
-            //解析响应
-            int responseCode = con.getResponseCode();
-            if (responseCode == HttpsURLConnection.HTTP_OK) {
-                BufferedReader in = new BufferedReader(
-                        new InputStreamReader(con.getInputStream())
-                );
-                String inputLine;
-                StringBuffer response = new StringBuffer();
+                        // 解析响应
+                        int responseCode = con.getResponseCode();
+                        if (responseCode == HttpURLConnection.HTTP_OK) {
+                            BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
+                            String inputLine;
+                            StringBuffer response = new StringBuffer();
 
-                while ((inputLine = in.readLine()) != null) {
-                    response.append(inputLine);
-                }
-                in.close();
+                            while ((inputLine = in.readLine()) != null) {
+                                response.append(inputLine);
+                            }
+                            in.close();
 
-                try {
-                    JSONObject json = new JSONObject(response.toString());
-                    if (json.has("score")) {
-                        same = (float) json.getDouble("score");
-                    } else {
-                        throw new RuntimeException();
+                            try {
+                                JSONObject json = new JSONObject(response.toString());
+                                if (json.has("result")) {
+                                    JSONObject result = json.getJSONObject("result");
+                                    final float same = (float) result.getDouble("score");
+                                    // 在 UI 线程更新 UI 元素
+                                    runOnUiThread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            long end = System.currentTimeMillis();
+                                            String text = "在线人脸识别结果：" + same;
+                                            if (same > MobileFaceNet.THRESHOLD) {
+                                                text = text + "，" + "True";
+                                                resultTextView.setTextColor(getResources().getColor(android.R.color.holo_green_light));
+                                            } else {
+                                                text = text + "，" + "False";
+                                                resultTextView.setTextColor(getResources().getColor(android.R.color.holo_red_light));
+                                            }
+                                            text = text + "，耗时" + (end - start);
+                                            resultTextView.setText(text);
+                                            resultTextView2.setText("");
+                                        }
+                                    });
+                                } else {
+                                    throw new RuntimeException();
+                                }
+                            } catch (JSONException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
                     }
-                } catch (JSONException e) {
-                    throw new RuntimeException(e);
                 }
-            }
+            }).start();
         }
-
-        long end = System.currentTimeMillis();
-
-        String text = "人脸比对结果：" + same;
-        if (same > MobileFaceNet.THRESHOLD) {
-            text = text + "，" + "True";
-            resultTextView.setTextColor(getResources().getColor(android.R.color.holo_green_light));
-        } else {
-            text = text + "，" + "False";
-            resultTextView.setTextColor(getResources().getColor(android.R.color.holo_red_light));
-        }
-        text = text + "，耗时" + (end - start);
-        resultTextView.setText(text);
-        resultTextView2.setText("");
     }
 
     // bitmap转base64的工具方法
@@ -302,7 +329,7 @@ public class MainActivity extends AppCompatActivity {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, baos);
         byte[] b = baos.toByteArray();
-        return Base64.encodeToString(b,Base64.DEFAULT);
+        return Base64.encodeToString(b,Base64.NO_WRAP);
     }
 
     /*********************************** 以下是相机部分 ***********************************/
