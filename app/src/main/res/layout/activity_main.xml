@@ -50,11 +50,18 @@
             android:layout_margin="10dp"/>
     </LinearLayout>
 
+
     <LinearLayout
-        android:layout_width="wrap_content"
+        android:layout_width="316dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_gravity="center_horizontal">
+        android:layout_gravity="center_horizontal"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/auto_btn"
+            android:layout_width="100dp"
+            android:layout_height="48dp"
+            android:text="自动选择" />
 
         <Button
             android:id="@+id/crop_btn"
@@ -62,16 +69,15 @@
             android:layout_height="48dp"
             android:layout_gravity="center_horizontal"
             android:layout_margin="10dp"
-            android:text="开始人脸比对" />
+            android:text="本机测试" />
 
         <Button
             android:id="@+id/test_Btn"
             android:layout_width="100dp"
             android:layout_height="48dp"
-            android:text="开始测试" />
+            android:text="云端测试" />
 
     </LinearLayout>
-
 
     <TextView
         android:id="@+id/result_text_view"

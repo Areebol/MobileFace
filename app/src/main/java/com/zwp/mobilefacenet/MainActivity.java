@@ -35,10 +35,10 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.ProtocolException;
 import java.net.URL;
 import java.util.Vector;
-
-import javax.net.ssl.HttpsURLConnection;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -74,10 +74,12 @@ public class MainActivity extends AppCompatActivity {
         //裁剪后显示
         imageViewCrop1 = findViewById(R.id.image_view_crop1);
         imageViewCrop2 = findViewById(R.id.image_view_crop2);
-        //裁剪人脸button
-        Button cropBtn = findViewById(R.id.crop_btn);
-        //测试button
-        Button testBtn = findViewById(R.id.test_Btn);
+        //本地button
+        Button localBtn = findViewById(R.id.crop_btn);
+        //网络button
+        Button onlineBtn = findViewById(R.id.test_Btn);
+        //自动选择button
+        Button autoBtn = findViewById(R.id.auto_btn);
         resultTextView = findViewById(R.id.result_text_view);
         resultTextView2 = findViewById(R.id.result_text_view2);
 
@@ -93,10 +95,11 @@ public class MainActivity extends AppCompatActivity {
         initCamera();
 
         //绑定事件
-        cropBtn.setOnClickListener(new View.OnClickListener() {
+        localBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                faceCrop();
+                net = false;
+                faceCropTest();
                 try {
                     faceCompare();
                 } catch (IOException e) {
@@ -106,7 +109,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        testBtn.setOnClickListener(new View.OnClickListener(){
+        onlineBtn.setOnClickListener(new View.OnClickListener(){
             @Override
             public void onClick(View view) {
                 net = true;
@@ -120,7 +123,72 @@ public class MainActivity extends AppCompatActivity {
                 }
                 long end = System.currentTimeMillis();
                 resultTextView2.setText("总耗时:" + (end - start));
-                net = false;
+            }
+        });
+
+        autoBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                netJudge();
+                faceCrop();
+                try {
+                    faceCompare();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    Toast.makeText(MainActivity.this, "对比失败" + e.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            }
+        });
+    }
+
+    /*
+     * 拥塞程度判断
+     */
+    private void netJudge() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String url = "http://110.64.90.148:8080/compare/health";
+
+                    URL obj = new URL(url);
+                    HttpURLConnection con = (HttpURLConnection) obj.openConnection();
+                    con.setRequestMethod("GET");
+                    con.setDoOutput(true);
+                    OutputStream os = con.getOutputStream();
+                    os.flush();
+                    os.close();
+
+                    int responseCode = con.getResponseCode();
+                    if (responseCode == HttpURLConnection.HTTP_OK) {
+                        BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
+                        String inputLine;
+                        StringBuilder response = new StringBuilder();
+
+                        while ((inputLine = in.readLine()) != null) {
+                            response.append(inputLine);
+                        }
+                        in.close();
+
+                        try {
+                            final int intValue = Integer.parseInt(response.toString().trim());
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    net = intValue <= 4;
+                                }
+                            });
+                        } catch (NumberFormatException e) {
+                            throw new RuntimeException();
+                        }
+                    }
+                } catch (ProtocolException e) {
+                    throw new RuntimeException(e);
+                } catch (MalformedURLException e) {
+                    throw new RuntimeException(e);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
             }
         });
     }
@@ -138,17 +206,18 @@ public class MainActivity extends AppCompatActivity {
         Bitmap bitmapTemp2 = bitmap2.copy(bitmap1.getConfig(), false);
 
         // 检测出人脸数据
-        long start = System.currentTimeMillis();
-        Vector<Box> boxes1 = mtcnn.detectFaces(bitmapTemp1, bitmapTemp1.getWidth() / 5); // 只有这句代码检测人脸，下面都是根据Box在图片中裁减出人脸
-        long end = System.currentTimeMillis();
-        resultTextView.setText("人脸检测前向传播耗时：" + (end - start));
+        long detectStart = System.currentTimeMillis();
+        Vector<Box> boxes1 = mtcnn.detectFaces(bitmapTemp1, bitmapTemp1.getWidth() / 5);
+        Vector<Box> boxes2 = mtcnn.detectFaces(bitmapTemp2, bitmapTemp2.getWidth() / 5);
+        long detectEnd = System.currentTimeMillis();
+        resultTextView.setText("人脸检测前向传播耗时：" + (detectEnd - detectStart));
         resultTextView2.setText("");
-        Vector<Box> boxes2 = mtcnn.detectFaces(bitmapTemp2, bitmapTemp2.getWidth() / 5); // 只有这句代码检测人脸，下面都是根据Box在图片中裁减出人脸
         if (boxes1.size() == 0 || boxes2.size() == 0) {
             Toast.makeText(MainActivity.this, "未检测到人脸", Toast.LENGTH_LONG).show();
             return;
         }
 
+        long cropStart = System.currentTimeMillis();
         // 这里因为使用的每张照片里只有一张人脸，所以取第一个值，用来剪裁人脸
         Box box1 = boxes1.get(0);
         Box box2 = boxes2.get(0);
@@ -174,6 +243,8 @@ public class MainActivity extends AppCompatActivity {
 
         imageViewCrop1.setImageBitmap(bitmapCrop1);
         imageViewCrop2.setImageBitmap(bitmapCrop2);
+        long cropEnd = System.currentTimeMillis();
+        resultTextView2.setText("人脸图片裁剪耗时: " + (cropEnd - cropStart));
     }
 
     private void faceCropTest() {
@@ -185,10 +256,10 @@ public class MainActivity extends AppCompatActivity {
         // 检测出人脸数据
         long start = System.currentTimeMillis();
         Vector<Box> boxes1 = mtcnn.detectFaces(bitmapTemp1, bitmapTemp1.getWidth() / 5); // 只有这句代码检测人脸，下面都是根据Box在图片中裁减出人脸
+        Vector<Box> boxes2 = mtcnn.detectFaces(bitmapTemp2, bitmapTemp2.getWidth() / 5); // 只有这句代码检测人脸，下面都是根据Box在图片中裁减出人脸
         long end = System.currentTimeMillis();
         resultTextView.setText("人脸检测前向传播耗时：" + (end - start));
         resultTextView2.setText("");
-        Vector<Box> boxes2 = mtcnn.detectFaces(bitmapTemp2, bitmapTemp2.getWidth() / 5); // 只有这句代码检测人脸，下面都是根据Box在图片中裁减出人脸
         if (boxes1.size() == 0 || boxes2.size() == 0) {
             Toast.makeText(MainActivity.this, "未检测到人脸", Toast.LENGTH_LONG).show();
             return;
@@ -231,11 +302,11 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        final long start = System.currentTimeMillis();
+        final long compareStart = System.currentTimeMillis();
         if (!net) {
             same = mfn.compare(bitmapCrop1, bitmapCrop2); // 就这一句有用代码，其他都是UI
 
-            long end = System.currentTimeMillis();
+            long localCompareEnd = System.currentTimeMillis();
 
             String text = "本地人脸比对结果：" + same;
             if (same > MobileFaceNet.THRESHOLD) {
@@ -245,7 +316,7 @@ public class MainActivity extends AppCompatActivity {
                 text = text + "，" + "False";
                 resultTextView.setTextColor(getResources().getColor(android.R.color.holo_red_light));
             }
-            text = text + "，耗时" + (end - start);
+            text = text + "，对比总耗时" + (localCompareEnd - compareStart);
             resultTextView.setText(text);
             resultTextView2.setText("");
         } else {
@@ -258,11 +329,14 @@ public class MainActivity extends AppCompatActivity {
                         }
                         String url = "http://110.64.90.148:8080/compare";
 
+                        final long convertStart = System.currentTimeMillis();
                         String base64Image1 = bitmapToBase64(bitmapCrop1);
                         String base64Image2 = bitmapToBase64(bitmapCrop2);
+                        final long convertEnd = System.currentTimeMillis();
 
                         String body = "{\"image1\":\"" + base64Image1 + "\",\"image2\":\"" + base64Image2 + "\"}";
 
+                        final long requestStart = System.currentTimeMillis();
                         //发送请求
                         URL obj = new URL(url);
                         HttpURLConnection con = (HttpURLConnection) obj.openConnection();
@@ -279,23 +353,25 @@ public class MainActivity extends AppCompatActivity {
                         if (responseCode == HttpURLConnection.HTTP_OK) {
                             BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
                             String inputLine;
-                            StringBuffer response = new StringBuffer();
+                            StringBuilder response = new StringBuilder();
 
                             while ((inputLine = in.readLine()) != null) {
                                 response.append(inputLine);
                             }
                             in.close();
+                            final long requestEnd = System.currentTimeMillis();
 
                             try {
                                 JSONObject json = new JSONObject(response.toString());
                                 if (json.has("result")) {
                                     JSONObject result = json.getJSONObject("result");
                                     final float same = (float) result.getDouble("score");
+
                                     // 在 UI 线程更新 UI 元素
                                     runOnUiThread(new Runnable() {
                                         @Override
                                         public void run() {
-                                            long end = System.currentTimeMillis();
+                                            long cloudCompareEnd = System.currentTimeMillis();
                                             String text = "在线人脸识别结果：" + same;
                                             if (same > MobileFaceNet.THRESHOLD) {
                                                 text = text + "，" + "True";
@@ -304,9 +380,9 @@ public class MainActivity extends AppCompatActivity {
                                                 text = text + "，" + "False";
                                                 resultTextView.setTextColor(getResources().getColor(android.R.color.holo_red_light));
                                             }
-                                            text = text + "，耗时" + (end - start);
+                                            text = text + "，对比总耗时" + (cloudCompareEnd - compareStart);
                                             resultTextView.setText(text);
-                                            resultTextView2.setText("");
+                                            resultTextView2.setText("Base64转换耗时: " + (convertEnd - convertStart) + "请求耗时: " + (requestEnd - requestStart));
                                         }
                                     });
                                 } else {
@@ -336,6 +412,9 @@ public class MainActivity extends AppCompatActivity {
     public static ImageButton currentBtn;
 
     private void initCamera() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,new String[]{Manifest.permission.CAMERA}, 1001);
+        }
         View.OnClickListener listener = new View.OnClickListener() {
             @Override
             public void onClick(View v) {
