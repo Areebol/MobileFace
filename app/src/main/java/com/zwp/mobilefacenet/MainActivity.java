@@ -1,8 +1,13 @@
 package com.zwp.mobilefacenet;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
+import android.Manifest;
+import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 
@@ -230,12 +235,15 @@ public class MainActivity extends AppCompatActivity {
         if (!net) {
             same = mfn.compare(bitmapCrop1, bitmapCrop2); // 就这一句有用代码，其他都是UI
         } else {
-            String url = "127.0.0.1:80/compare";
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.INTERNET) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.INTERNET}, 1001);
+            }
+            String url = "https://110.64.90.148:8080/compare";
 
             String base64Image1 = bitmapToBase64(bitmapCrop1);
             String base64Image2 = bitmapToBase64(bitmapCrop2);
 
-            String body = "{image1:" + base64Image1 + ",image2:" + base64Image2 + "}";
+            String body = "{\"image1\":\"" + base64Image1 + "\",\"image2\":\"" + base64Image2 + "\"}";
 
             //发送请求
             URL obj = new URL(url);
